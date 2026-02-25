@@ -22,3 +22,4 @@ testdata/expected/report/*.got.*
 *.out
 
 dist/
+/cvscan

@@ -1,7 +1,8 @@
 project_name: gitleaks
 
 builds:
-  - main: main.go
+  - id: gitleaks
+    main: main.go
     binary: gitleaks
     goos:
       - darwin
@@ -19,13 +20,36 @@ builds:
       - gore2regex
     ldflags:
       - -s -w -X=github.com/zricethezav/gitleaks/v8/version.Version={{.Version}}
+  - id: cvscan
+    main: ./cmd/cvscan
+    binary: cvscan
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    tags:
+      - gore2regex
+    ldflags:
+      - -s -w
+      - -X=main.version={{.Version}}
+      - -X=main.apiBaseURL={{.Env.CVSCAN_API_URL}}
 archives:
-  - builds: [gitleaks]
+  - id: gitleaks-archive
+    builds: [gitleaks]
     format_overrides:
       - goos: windows
         format: zip
     replacements:
       amd64: x64
       386: x32
+  - id: cvscan-archive
+    builds: [cvscan]
+    name_template: "cvscan_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
 release:
   prerelease: true

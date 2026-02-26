@@ -26,11 +26,23 @@ jobs:
           git tag "$VERSION"
           echo "GORELEASER_CURRENT_TAG=$VERSION" >> $GITHUB_ENV
 
+      - name: Check Homebrew token
+        id: brew
+        run: |
+          if [ -n "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "skip=" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping Homebrew — HOMEBREW_TAP_TOKEN not set"
+            echo "skip=--skip=homebrew" >> $GITHUB_OUTPUT
+          fi
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           version: latest
-          args: release --clean --config .goreleaser-cvscan.yml
+          args: release --clean --config .goreleaser-cvscan.yml ${{ steps.brew.outputs.skip }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

@@ -1,4 +1,9 @@
+version: 2
+
 project_name: cvscan
+
+monorepo:
+  tag_template: 'cvscan-v{{ .Version }}'
 
 builds:
   - id: cvscan

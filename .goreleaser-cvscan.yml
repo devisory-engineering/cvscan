@@ -1,0 +1,33 @@
+project_name: cvscan
+
+builds:
+  - id: cvscan
+    main: ./cmd/cvscan
+    binary: cvscan
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    tags:
+      - gore2regex
+    ldflags:
+      - -s -w
+      - -X=main.version={{.Version}}
+      - -X=main.apiBaseURL={{.Env.CVSCAN_API_URL}}
+
+archives:
+  - id: cvscan-archive
+    builds: [cvscan]
+    name_template: "cvscan_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+checksum:
+  name_template: "cvscan_{{ .Version }}_checksums.txt"
+
+release:
+  prerelease: auto

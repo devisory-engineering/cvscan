@@ -21,7 +21,8 @@ var linkCleaner = strings.NewReplacer(
 )
 
 func createScmLink(remote *sources.RemoteInfo, finding report.Finding) string {
-	if remote.Platform == scm.UnknownPlatform ||
+	if remote == nil ||
+		remote.Platform == scm.UnknownPlatform ||
 		remote.Platform == scm.NoPlatform ||
 		finding.Commit == "" {
 		return ""

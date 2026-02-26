@@ -20,8 +20,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Strip tag prefix for GoReleaser
-        run: echo "GORELEASER_CURRENT_TAG=${GITHUB_REF_NAME#cvscan-}" >> $GITHUB_ENV
+      - name: Create semver tag for GoReleaser
+        run: |
+          VERSION=${GITHUB_REF_NAME#cvscan-}
+          git tag "$VERSION"
+          echo "GORELEASER_CURRENT_TAG=$VERSION" >> $GITHUB_ENV
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6

@@ -31,3 +31,18 @@ checksum:
 
 release:
   prerelease: auto
+
+brews:
+  - ids: [cvscan-archive]
+    repository:
+      owner: devisory-engineering
+      name: homebrew-cvscan
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/devisory-engineering/cvscan
+    description: "Cloudvisor Security Scanner - secrets & IaC misconfiguration scanning"
+    license: MIT
+    install: |
+      bin.install "cvscan"
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/cvscan --version")

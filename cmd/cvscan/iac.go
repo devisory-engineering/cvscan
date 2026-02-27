@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	"github.com/aquasecurity/trivy/pkg/iac/detection"
@@ -34,7 +35,20 @@ func (s *IaCScanner) Run(ctx context.Context, repoPath string) ([]Finding, error
 	return findings, nil
 }
 
-func (s *IaCScanner) scanFileType(ctx context.Context, repoPath string, fileType detection.FileType, opt misconf.ScannerOption) ([]Finding, error) {
+func (s *IaCScanner) scanFileType(ctx context.Context, repoPath string, fileType detection.FileType, opt misconf.ScannerOption) (findings []Finding, err error) {
+	// Recover from panics in trivy's scanner. This is necessary because trivy
+	// can panic on certain malformed Terraform configurations (e.g. nil cty
+	// types in go-cty's evaluateVariable path). Since we cannot fix trivy
+	// itself, we catch the panic here so that one bad repo does not crash the
+	// entire scan run.
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: IaC %s scan failed for %s: recovered from panic: %v\n", fileType, repoPath, r)
+			findings = nil
+			err = fmt.Errorf("panic during IaC %s scan: %v", fileType, r)
+		}
+	}()
+
 	scanner, err := misconf.NewScanner(fileType, opt)
 	if err != nil {
 		return nil, err
@@ -46,7 +60,6 @@ func (s *IaCScanner) scanFileType(ctx context.Context, repoPath string, fileType
 		return nil, err
 	}
 
-	var findings []Finding
 	for _, mc := range misconfs {
 		for _, f := range mc.Failures {
 			findings = append(findings, Finding{

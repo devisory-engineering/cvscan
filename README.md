@@ -13,9 +13,19 @@ Built on [gitleaks](https://github.com/gitleaks/gitleaks) (secrets detection) an
 
 ## Installation
 
-Download the latest release for your platform from [Releases](../../releases).
+### Homebrew (recommended)
 
-Or build from source:
+```bash
+brew tap devisory-engineering/cvscan && brew install cvscan
+```
+
+### Direct download
+
+Download the latest release for your platform from the [GitHub Releases](../../releases) page.
+
+> **macOS Gatekeeper note:** On macOS, downloaded binaries trigger a "malware" warning. After extracting, run `xattr -cr cvscan` to clear the quarantine flag.
+
+### Build from source
 
 ```bash
 go build -o cvscan ./cmd/cvscan/

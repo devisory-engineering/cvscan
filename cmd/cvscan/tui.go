@@ -34,6 +34,10 @@ const (
 	stepRepoPath
 	stepConfirmRepos
 	stepScanning
+	stepResults
+	stepConsent
+	stepEnterID
+	stepSubmitting
 	stepDone
 )
 
@@ -42,6 +46,7 @@ type scanCompleteMsg struct {
 	result *ScanResult
 	err    error
 }
+type submitCompleteMsg struct{ err error }
 
 type tuiModel struct {
 	ctx  context.Context
@@ -49,6 +54,7 @@ type tuiModel struct {
 
 	// Inputs
 	pathInput textinput.Model
+	idInput   textinput.Model
 
 	// State
 	reposPath      string
@@ -56,6 +62,7 @@ type tuiModel struct {
 	secretsEnabled bool
 	iacEnabled     bool
 	scanResult     *ScanResult
+	id             string
 
 	// UI state
 	spinner     spinner.Model
@@ -72,6 +79,10 @@ func newTuiModel(ctx context.Context) tuiModel {
 	pi.Placeholder = "./my-repos/"
 	pi.CharLimit = 512
 
+	ii := textinput.New()
+	ii.Placeholder = "eng_xxx or tok_xxx"
+	ii.CharLimit = 64
+
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
@@ -79,6 +90,7 @@ func newTuiModel(ctx context.Context) tuiModel {
 		ctx:            ctx,
 		step:           stepScanners,
 		pathInput:      pi,
+		idInput:        ii,
 		secretsEnabled: true,
 		iacEnabled:     true,
 		spinner:        sp,
@@ -108,6 +120,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateConfirmRepos(msg)
 	case stepScanning:
 		return m.updateScanning(msg)
+	case stepResults:
+		return m.updateResults(msg)
+	case stepConsent:
+		return m.updateConsent(msg)
+	case stepEnterID:
+		return m.updateEnterID(msg)
+	case stepSubmitting:
+		return m.updateSubmitting(msg)
 	case stepDone:
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "enter" {
 			return m, tea.Quit
@@ -286,6 +306,75 @@ func (m tuiModel) updateScanning(msg tea.Msg) (tea.Model, tea.Cmd) {
 		jsonPath := jsonSidecarPath(m.reportPath)
 		_ = writeResultsJSON(msg.result, jsonPath)
 
+		m.step = stepResults
+		return m, nil
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m tuiModel) updateResults(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "enter" {
+		m.step = stepConsent
+		m.cursor = 0
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m tuiModel) updateConsent(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok {
+		switch keyMsg.String() {
+		case "y", "Y":
+			m.step = stepEnterID
+			m.idInput.Focus()
+			return m, textinput.Blink
+		case "n", "N", "enter":
+			m.step = stepDone
+			return m, nil
+		}
+	}
+	return m, nil
+}
+
+func (m tuiModel) updateEnterID(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "enter" {
+		val := strings.TrimSpace(m.idInput.Value())
+		if val == "" {
+			m.errMsg = "ID is required"
+			return m, nil
+		}
+		if err := ValidateID(val); err != nil {
+			m.errMsg = err.Error()
+			return m, nil
+		}
+		m.id = val
+		m.errMsg = ""
+		m.step = stepSubmitting
+		return m, tea.Batch(m.spinner.Tick, m.submitCmd())
+	}
+
+	var cmd tea.Cmd
+	m.idInput, cmd = m.idInput.Update(msg)
+	return m, cmd
+}
+
+func (m tuiModel) submitCmd() tea.Cmd {
+	return func() tea.Msg {
+		err := submitFindings(apiBaseURL, m.id, m.scanResult)
+		return submitCompleteMsg{err: err}
+	}
+}
+
+func (m tuiModel) updateSubmitting(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case submitCompleteMsg:
+		if msg.err != nil {
+			m.errMsg = msg.err.Error()
+		}
 		m.step = stepDone
 		return m, nil
 	case spinner.TickMsg:
@@ -351,15 +440,32 @@ func (m tuiModel) View() string {
 	case stepScanning:
 		s.WriteString(fmt.Sprintf("  %s Scanning %d repositories...", m.spinner.View(), len(m.repos)))
 
+	case stepResults:
+		r := m.scanResult
+		s.WriteString(fmt.Sprintf("  Total: %d findings (%d secrets, %d IaC) across %d repos\n",
+			r.Summary.TotalFindings, r.Summary.SecretsFindings, r.Summary.IaCFindings, r.Summary.ReposScanned))
+		s.WriteString(successStyle.Render(fmt.Sprintf("  Report saved: %s", m.reportPath)) + "\n")
+		s.WriteString(successStyle.Render(fmt.Sprintf("  Results saved: %s", jsonSidecarPath(m.reportPath))) + "\n")
+		s.WriteString("\n" + mutedStyle.Render("  Press enter to continue..."))
+
+	case stepConsent:
+		s.WriteString(promptStyle.Render("? Submit findings to Cloudvisor? [y/N] "))
+
+	case stepEnterID:
+		s.WriteString(promptStyle.Render("? Enter your ID: "))
+		s.WriteString(m.idInput.View())
+		s.WriteString("\n" + mutedStyle.Render("  eng_xxx (engagement) or tok_xxx (standalone token)"))
+
+	case stepSubmitting:
+		s.WriteString(fmt.Sprintf("  %s Submitting findings...", m.spinner.View()))
+
 	case stepDone:
 		if m.errMsg != "" {
-			s.WriteString(errorStyle.Render("  Error: "+m.errMsg) + "\n")
-		} else if m.scanResult != nil {
-			r := m.scanResult
-			s.WriteString(fmt.Sprintf("\n  Total: %d findings (%d secrets, %d IaC) across %d repos\n",
-				r.Summary.TotalFindings, r.Summary.SecretsFindings, r.Summary.IaCFindings, r.Summary.ReposScanned))
-			s.WriteString(successStyle.Render(fmt.Sprintf("\n  Report saved: %s\n", m.reportPath)))
-			s.WriteString(mutedStyle.Render("\n  Use 'cvscan submit --id <eng_xxx>' to submit results to Cloudvisor."))
+			s.WriteString(errorStyle.Render("  Submission failed: "+m.errMsg) + "\n")
+		} else if m.id != "" {
+			s.WriteString(successStyle.Render("  Findings submitted successfully.") + "\n")
+		} else {
+			s.WriteString(successStyle.Render("  Scan complete.") + "\n")
 		}
 		s.WriteString("\n" + mutedStyle.Render("  Press enter to exit."))
 	}

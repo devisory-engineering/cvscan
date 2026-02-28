@@ -97,7 +97,15 @@ func Orchestrate(ctx context.Context, req ScanRequest, progress ProgressFunc) (*
 }
 
 // discoverRepos returns sorted paths to directories under root.
+// If root itself is a git repo (contains .git/), it is returned as
+// the only entry — preventing subdirectories from being treated as
+// separate repositories.
 func discoverRepos(root string) ([]string, error) {
+	// If root itself is a git repo, scan just that one.
+	if _, err := os.Stat(filepath.Join(root, ".git")); err == nil {
+		return []string{root}, nil
+	}
+
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return nil, fmt.Errorf("cannot read repos directory: %w", err)

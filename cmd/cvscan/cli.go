@@ -65,6 +65,9 @@ func runCLI(ctx context.Context, cfg CLIConfig) error {
 
 	// Submit only if --id was provided
 	if cfg.ID != "" {
+		if err := ValidateID(cfg.ID); err != nil {
+			return err
+		}
 		fmt.Print("\nSubmitting findings to Cloudvisor... ")
 		if err := submitFindings(apiBaseURL, cfg.ID, result); err != nil {
 			fmt.Println("FAILED")

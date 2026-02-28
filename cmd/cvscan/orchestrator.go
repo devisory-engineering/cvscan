@@ -10,18 +10,15 @@ import (
 
 // ScanRequest holds all inputs for a scan run.
 type ScanRequest struct {
-	EngagementID string
-	Token        string
-	ReposPath    string
-	Scanners     []Scanner
+	ReposPath string
+	Scanners  []Scanner
 }
 
 // ScanResult holds the output of a complete scan run.
 type ScanResult struct {
-	EngagementID string    `json:"engagement_id"`
-	ReposPath    string    `json:"repos_path"`
-	Findings     []Finding `json:"findings"`
-	Summary      Summary   `json:"summary"`
+	ReposPath string    `json:"repos_path"`
+	Findings  []Finding `json:"findings"`
+	Summary   Summary   `json:"summary"`
 }
 
 // Summary provides aggregate counts for the scan.
@@ -87,9 +84,8 @@ func Orchestrate(ctx context.Context, req ScanRequest, progress ProgressFunc) (*
 	}
 
 	return &ScanResult{
-		EngagementID: req.EngagementID,
-		ReposPath:    req.ReposPath,
-		Findings:     allFindings,
+		ReposPath: req.ReposPath,
+		Findings:  allFindings,
 		Summary: Summary{
 			TotalFindings:   len(allFindings),
 			SecretsFindings: secretsCount,

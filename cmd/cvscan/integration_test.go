@@ -20,10 +20,7 @@ func TestIntegration_CLIFlow(t *testing.T) {
 	var submitCalled bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/validate-token":
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(tokenResponse{Valid: true, ExpiresIn: "7 days"})
-		case "/submit-findings":
+		case "/submit":
 			submitCalled = true
 			json.NewDecoder(r.Body).Decode(&receivedPayload)
 			w.WriteHeader(http.StatusOK)
@@ -51,14 +48,13 @@ func TestIntegration_CLIFlow(t *testing.T) {
 		t.Fatalf("failed to write secret file: %v", err)
 	}
 
-	// Run the full CLI flow.
+	// Run the full CLI flow with --id to trigger submission.
 	reportPath := filepath.Join(tmpDir, "report.html")
 	err := runCLI(context.Background(), CLIConfig{
-		EngagementID: "ENG-TEST-001",
-		Token:        "test-token-123",
-		ReposPath:    tmpDir,
-		Output:       reportPath,
-		Scanners:     "secrets",
+		ID:        "eng_test001",
+		ReposPath: tmpDir,
+		Output:    reportPath,
+		Scanners:  "secrets",
 	})
 	if err != nil {
 		t.Fatalf("CLI flow failed: %v", err)
@@ -74,22 +70,26 @@ func TestIntegration_CLIFlow(t *testing.T) {
 		t.Error("HTML report is empty")
 	}
 
-	// 2. Verify submission was attempted with the correct engagement ID.
+	// 2. Verify submission was attempted with the correct ID.
 	if !submitCalled {
-		t.Error("submit-findings endpoint was never called")
+		t.Error("submit endpoint was never called")
 	}
-	if receivedPayload.EngagementID != "ENG-TEST-001" {
-		t.Errorf("wrong engagement_id in submission: got %q, want %q",
-			receivedPayload.EngagementID, "ENG-TEST-001")
+	if receivedPayload.ID != "eng_test001" {
+		t.Errorf("wrong ID in submission: got %q, want %q",
+			receivedPayload.ID, "eng_test001")
 	}
 
 	// 3. Verify no raw secrets leaked in the submission payload.
-	// Gitleaks may or may not detect the pattern in a non-git directory context,
-	// so we only check findings that were actually produced.
 	for _, f := range receivedPayload.Findings {
 		if f.SecretRedacted == "AKIAIOSFODNN7EXAMPLE" {
 			t.Error("raw secret leaked in submission payload")
 		}
+	}
+
+	// 4. Verify JSON sidecar was written.
+	jsonPath := jsonSidecarPath(reportPath)
+	if _, err := os.Stat(jsonPath); os.IsNotExist(err) {
+		t.Error("JSON sidecar was not written")
 	}
 
 	// Log how many findings were detected for visibility.

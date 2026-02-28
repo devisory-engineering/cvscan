@@ -18,7 +18,6 @@ var reportTemplateFS embed.FS
 type reportData struct {
 	ScanDate        string
 	ReposPath       string
-	EngagementID    string
 	Summary         Summary
 	SecretsFindings []Finding
 	IaCFindings     []Finding
@@ -53,7 +52,6 @@ func generateHTMLReport(result *ScanResult, outputPath string) error {
 	data := reportData{
 		ScanDate:        formatLocalTimestamp(),
 		ReposPath:       result.ReposPath,
-		EngagementID:    result.EngagementID,
 		Summary:         result.Summary,
 		SecretsFindings: secrets,
 		IaCFindings:     iac,

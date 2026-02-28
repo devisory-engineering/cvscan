@@ -30,47 +30,32 @@ var (
 type tuiStep int
 
 const (
-	stepEngagementID tuiStep = iota
-	stepToken
-	stepValidating
-	stepScanners
+	stepScanners tuiStep = iota
 	stepRepoPath
 	stepConfirmRepos
 	stepScanning
-	stepConsent
-	stepSubmitting
 	stepDone
 )
 
 // Messages
-type tokenValidatedMsg struct {
-	resp *tokenResponse
-	err  error
-}
 type scanCompleteMsg struct {
 	result *ScanResult
 	err    error
 }
-type submitCompleteMsg struct{ err error }
 
 type tuiModel struct {
 	ctx  context.Context
 	step tuiStep
 
 	// Inputs
-	engInput  textinput.Model
-	tokInput  textinput.Model
 	pathInput textinput.Model
 
 	// State
-	engagementID   string
-	token          string
 	reposPath      string
 	repos          []string
 	secretsEnabled bool
 	iacEnabled     bool
 	scanResult     *ScanResult
-	tokenResp      *tokenResponse
 
 	// UI state
 	spinner     spinner.Model
@@ -83,17 +68,6 @@ type tuiModel struct {
 }
 
 func newTuiModel(ctx context.Context) tuiModel {
-	ei := textinput.New()
-	ei.Placeholder = "ENG-456"
-	ei.Focus()
-	ei.CharLimit = 64
-
-	ti := textinput.New()
-	ti.Placeholder = "paste your token"
-	ti.EchoMode = textinput.EchoPassword
-	ti.EchoCharacter = '*'
-	ti.CharLimit = 256
-
 	pi := textinput.New()
 	pi.Placeholder = "./my-repos/"
 	pi.CharLimit = 512
@@ -103,9 +77,7 @@ func newTuiModel(ctx context.Context) tuiModel {
 
 	return tuiModel{
 		ctx:            ctx,
-		step:           stepEngagementID,
-		engInput:       ei,
-		tokInput:       ti,
+		step:           stepScanners,
 		pathInput:      pi,
 		secretsEnabled: true,
 		iacEnabled:     true,
@@ -115,7 +87,7 @@ func newTuiModel(ctx context.Context) tuiModel {
 }
 
 func (m tuiModel) Init() tea.Cmd {
-	return textinput.Blink
+	return nil
 }
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -128,12 +100,6 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.step {
-	case stepEngagementID:
-		return m.updateEngagementID(msg)
-	case stepToken:
-		return m.updateToken(msg)
-	case stepValidating:
-		return m.updateValidating(msg)
 	case stepScanners:
 		return m.updateScanners(msg)
 	case stepRepoPath:
@@ -142,81 +108,12 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateConfirmRepos(msg)
 	case stepScanning:
 		return m.updateScanning(msg)
-	case stepConsent:
-		return m.updateConsent(msg)
-	case stepSubmitting:
-		return m.updateSubmitting(msg)
 	case stepDone:
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "enter" {
 			return m, tea.Quit
 		}
 	}
 
-	return m, nil
-}
-
-func (m tuiModel) updateEngagementID(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "enter" {
-		val := strings.TrimSpace(m.engInput.Value())
-		if val == "" {
-			m.errMsg = "engagement ID is required"
-			return m, nil
-		}
-		m.engagementID = val
-		m.errMsg = ""
-		m.step = stepToken
-		m.tokInput.Focus()
-		return m, textinput.Blink
-	}
-
-	var cmd tea.Cmd
-	m.engInput, cmd = m.engInput.Update(msg)
-	return m, cmd
-}
-
-func (m tuiModel) updateToken(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "enter" {
-		val := strings.TrimSpace(m.tokInput.Value())
-		if val == "" {
-			m.errMsg = "token is required"
-			return m, nil
-		}
-		m.token = val
-		m.errMsg = ""
-		m.step = stepValidating
-		return m, tea.Batch(m.spinner.Tick, m.validateTokenCmd())
-	}
-
-	var cmd tea.Cmd
-	m.tokInput, cmd = m.tokInput.Update(msg)
-	return m, cmd
-}
-
-func (m tuiModel) validateTokenCmd() tea.Cmd {
-	return func() tea.Msg {
-		resp, err := validateToken(apiBaseURL, m.engagementID, m.token)
-		return tokenValidatedMsg{resp: resp, err: err}
-	}
-}
-
-func (m tuiModel) updateValidating(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tokenValidatedMsg:
-		if msg.err != nil {
-			m.errMsg = msg.err.Error()
-			m.step = stepToken
-			m.tokInput.Focus()
-			m.tokInput.SetValue("")
-			return m, textinput.Blink
-		}
-		m.tokenResp = msg.resp
-		m.step = stepScanners
-		return m, nil
-	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
-	}
 	return m, nil
 }
 
@@ -361,10 +258,8 @@ func (m tuiModel) runScanCmd() tea.Cmd {
 		}
 
 		result, err := Orchestrate(m.ctx, ScanRequest{
-			EngagementID: m.engagementID,
-			Token:        m.token,
-			ReposPath:    m.reposPath,
-			Scanners:     scanners,
+			ReposPath: m.reposPath,
+			Scanners:  scanners,
 		}, nil)
 		return scanCompleteMsg{result: result, err: err}
 	}
@@ -387,44 +282,10 @@ func (m tuiModel) updateScanning(msg tea.Msg) (tea.Model, tea.Cmd) {
 			_ = openInBrowser(m.reportPath)
 		}
 
-		m.step = stepConsent
-		m.cursor = 0
-		return m, nil
-	case spinner.TickMsg:
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
-	}
-	return m, nil
-}
+		// Write JSON sidecar
+		jsonPath := jsonSidecarPath(m.reportPath)
+		_ = writeResultsJSON(msg.result, jsonPath)
 
-func (m tuiModel) updateConsent(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if keyMsg, ok := msg.(tea.KeyMsg); ok {
-		switch keyMsg.String() {
-		case "y", "Y", "enter":
-			m.step = stepSubmitting
-			return m, tea.Batch(m.spinner.Tick, m.submitCmd())
-		case "n", "N":
-			m.step = stepDone
-			return m, nil
-		}
-	}
-	return m, nil
-}
-
-func (m tuiModel) submitCmd() tea.Cmd {
-	return func() tea.Msg {
-		err := submitFindings(apiBaseURL, m.token, m.scanResult)
-		return submitCompleteMsg{err: err}
-	}
-}
-
-func (m tuiModel) updateSubmitting(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case submitCompleteMsg:
-		if msg.err != nil {
-			m.errMsg = msg.err.Error()
-		}
 		m.step = stepDone
 		return m, nil
 	case spinner.TickMsg:
@@ -445,22 +306,7 @@ func (m tuiModel) View() string {
 	s.WriteString("\n\n")
 
 	switch m.step {
-	case stepEngagementID:
-		s.WriteString(promptStyle.Render("? Engagement ID: "))
-		s.WriteString(m.engInput.View())
-
-	case stepToken:
-		s.WriteString(successStyle.Render("  Engagement ID: "+m.engagementID) + "\n")
-		s.WriteString(promptStyle.Render("? Token: "))
-		s.WriteString(m.tokInput.View())
-
-	case stepValidating:
-		s.WriteString(successStyle.Render("  Engagement ID: "+m.engagementID) + "\n")
-		s.WriteString(fmt.Sprintf("  %s Validating token...", m.spinner.View()))
-
 	case stepScanners:
-		s.WriteString(successStyle.Render("  Engagement ID: "+m.engagementID) + "\n")
-		s.WriteString(successStyle.Render(fmt.Sprintf("  Token: valid (expires in %s)", m.tokenResp.ExpiresIn)) + "\n\n")
 		s.WriteString(promptStyle.Render("? What would you like to scan?") + "\n")
 
 		secretsCheck := "[ ]"
@@ -505,28 +351,17 @@ func (m tuiModel) View() string {
 	case stepScanning:
 		s.WriteString(fmt.Sprintf("  %s Scanning %d repositories...", m.spinner.View(), len(m.repos)))
 
-	case stepConsent:
-		r := m.scanResult
-		s.WriteString(fmt.Sprintf("\n  Total: %d findings (%d secrets, %d IaC) across %d repos\n",
-			r.Summary.TotalFindings, r.Summary.SecretsFindings, r.Summary.IaCFindings, r.Summary.ReposScanned))
-		s.WriteString(successStyle.Render(fmt.Sprintf("\n  Report saved: %s\n", m.reportPath)))
-		s.WriteString("\n" + mutedStyle.Render("  Data sharing:") + "\n")
-		s.WriteString(fmt.Sprintf("  %s %d findings (file paths, line numbers, types, redacted values)\n", mutedStyle.Render("*"), r.Summary.TotalFindings))
-		s.WriteString(mutedStyle.Render("  * No source code or full secrets leave your machine") + "\n")
-		s.WriteString("\n" + promptStyle.Render("? Submit findings to Cloudvisor? [Y/n] "))
-
-	case stepSubmitting:
-		s.WriteString(fmt.Sprintf("  %s Submitting findings...", m.spinner.View()))
-
 	case stepDone:
 		if m.errMsg != "" {
-			s.WriteString(errorStyle.Render("  Submission failed: "+m.errMsg) + "\n")
+			s.WriteString(errorStyle.Render("  Error: "+m.errMsg) + "\n")
 		} else if m.scanResult != nil {
-			s.WriteString(successStyle.Render(fmt.Sprintf("  Submitted for engagement %s", m.engagementID)) + "\n")
-			s.WriteString(successStyle.Render("  Token consumed") + "\n")
+			r := m.scanResult
+			s.WriteString(fmt.Sprintf("\n  Total: %d findings (%d secrets, %d IaC) across %d repos\n",
+				r.Summary.TotalFindings, r.Summary.SecretsFindings, r.Summary.IaCFindings, r.Summary.ReposScanned))
+			s.WriteString(successStyle.Render(fmt.Sprintf("\n  Report saved: %s\n", m.reportPath)))
+			s.WriteString(mutedStyle.Render("\n  Use 'cvscan submit --id <eng_xxx>' to submit results to Cloudvisor."))
 		}
-		s.WriteString("\n" + mutedStyle.Render("  Thank you! Contact your Cloudvisor engineer for a new token.") + "\n")
-		s.WriteString(mutedStyle.Render("  Press enter to exit."))
+		s.WriteString("\n" + mutedStyle.Render("  Press enter to exit."))
 	}
 
 	if m.errMsg != "" && m.step != stepDone {

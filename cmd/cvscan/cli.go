@@ -9,39 +9,22 @@ import (
 
 // CLIConfig holds all flag-based configuration.
 type CLIConfig struct {
-	EngagementID string
-	Token        string
-	ReposPath    string
-	Output       string
-	Scanners     string // comma-separated: "secrets,iac"
-	DryRun       bool
-	NoSubmit     bool
+	ID        string // eng_xxx or tok_xxx (empty = local-only)
+	ReposPath string
+	Output    string
+	Scanners  string // comma-separated: "secrets,iac"
 }
 
 func runCLI(ctx context.Context, cfg CLIConfig) error {
-	// Resolve scanners
 	scanners, err := parseScanners(cfg.Scanners)
 	if err != nil {
 		return err
 	}
 
-	// Validate token (unless dry-run or no-submit)
-	if !cfg.NoSubmit && !cfg.DryRun {
-		fmt.Print("Validating token... ")
-		resp, err := validateToken(apiBaseURL, cfg.EngagementID, cfg.Token)
-		if err != nil {
-			fmt.Println("FAILED")
-			return fmt.Errorf("token validation failed: %w", err)
-		}
-		fmt.Printf("Valid (expires in %s)\n", resp.ExpiresIn)
-	}
-
 	// Run scans
 	result, err := Orchestrate(ctx, ScanRequest{
-		EngagementID: cfg.EngagementID,
-		Token:        cfg.Token,
-		ReposPath:    cfg.ReposPath,
-		Scanners:     scanners,
+		ReposPath: cfg.ReposPath,
+		Scanners:  scanners,
 	}, func(scanner, repo string, findings int) {
 		if findings < 0 {
 			fmt.Fprintf(os.Stderr, "  %s / %s ... error\n", scanner, repo)
@@ -61,6 +44,14 @@ func runCLI(ctx context.Context, cfg CLIConfig) error {
 		result.Summary.ReposScanned,
 	)
 
+	// Write JSON sidecar
+	jsonPath := jsonSidecarPath(cfg.Output)
+	if err := writeResultsJSON(result, jsonPath); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to write results JSON: %v\n", err)
+	} else {
+		fmt.Printf("Results saved: %s\n", jsonPath)
+	}
+
 	// Generate HTML report
 	output := cfg.Output
 	if output == "" {
@@ -72,22 +63,15 @@ func runCLI(ctx context.Context, cfg CLIConfig) error {
 	fmt.Printf("Report saved: %s\n", output)
 	_ = openInBrowser(output)
 
-	// Submit (unless dry-run or no-submit)
-	if cfg.DryRun {
-		fmt.Println("\n[dry-run] Findings would be submitted to Cloudvisor. Skipping.")
-		return nil
+	// Submit only if --id was provided
+	if cfg.ID != "" {
+		fmt.Print("\nSubmitting findings to Cloudvisor... ")
+		if err := submitFindings(apiBaseURL, cfg.ID, result); err != nil {
+			fmt.Println("FAILED")
+			return err
+		}
+		fmt.Println("Done")
 	}
-	if cfg.NoSubmit {
-		return nil
-	}
-
-	fmt.Print("\nSubmitting findings to Cloudvisor... ")
-	if err := submitFindings(apiBaseURL, cfg.Token, result); err != nil {
-		fmt.Println("FAILED")
-		return err
-	}
-	fmt.Println("Done")
-	fmt.Println("Token consumed. Request a new token for future scans.")
 
 	return nil
 }

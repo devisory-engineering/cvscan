@@ -83,6 +83,7 @@ Reads `.cvscan-results.json` from the current directory (or `--file` path) and s
 --token         Submission token (tok_xxx) — required with --id
 --scanners      Comma-separated: secrets,iac (default: both)
 --output, -o    HTML report path (default: cvscan-report.html)
+--file          Results JSON path for submit command (default: .cvscan-results.json)
 ```
 
 ## How submission works
